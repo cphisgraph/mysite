@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 知识图谱 VR 展示 - v1.0 VR 适配修正版</title>
+    <title>3D 知识图谱 VR 展示 - v1.1 Quest 优化版</title>
     <style>
         :root {
             --primary-color: #b38600;
@@ -77,24 +77,15 @@
         <!-- AI 提取 -->
         <div class="section-box">
             <h2>✨ AI 智能三元组提取</h2>
-            <p class="hint-text">输入自然语言（人物传记、历史片段等），AI 将自动解析三元组。</p>
+            <p class="hint-text">输入自然语言，AI 将自动解析三元组并转化为 CSV 格式。</p>
             <textarea id="ai-input-text" placeholder="例如：毛泽东于1893年出生于湖南韶山。"></textarea>
             <div style="margin-top: 15px; display: flex; align-items: center;">
-                <button class="btn-action ai" id="btn-ai-extract" onclick="handleAIExtraction()">开始 AI 提取</button>
-                <div id="loading-overlay">解析中...</div>
+                <button class="btn-action ai" id="btn-ai-extract" onclick="handleAIExtraction()">智能解析提取</button>
+                <div id="loading-overlay">AI 正在思考中...</div>
             </div>
             <div id="ai-result-container" style="display:none; margin-top:20px;">
                 <textarea id="ai-output-area" readonly></textarea>
-                <button class="btn-action" style="margin-top:10px;" onclick="importAIToTable()">追加到下方数据表</button>
-            </div>
-        </div>
-
-        <!-- 批量导入 -->
-        <div class="section-box">
-            <h2>批量 CSV 导入</h2>
-            <textarea id="csv-import-area" placeholder="格式：主节点,客节点,关系名称"></textarea>
-            <div style="margin-top: 15px;">
-                <button class="btn-action" onclick="handleCSVBatchImport()">解析并追加</button>
+                <button class="btn-action" style="margin-top:10px;" onclick="importAIToTable()">导入至下方表格</button>
             </div>
         </div>
 
@@ -104,7 +95,7 @@
                 <h2>数据源管理</h2>
                 <div>
                     <button class="btn-action secondary" onclick="addNewDataRow()">+ 手动添加</button>
-                    <button class="btn-action" onclick="applyDataChanges()">💾 保存并同步图谱</button>
+                    <button class="btn-action" onclick="applyDataChanges()">💾 保存并同步</button>
                 </div>
             </div>
             <table>
@@ -135,10 +126,9 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/DragControls.js"></script>
 
     <script>
-        // --- 内置 VRButton 实现以修复 ReferenceError ---
+        // --- 核心工具：VR 按钮实现 ---
         const VRButton = {
             createButton: function ( renderer ) {
                 const button = document.createElement( 'button' );
@@ -162,20 +152,12 @@
                     button.onmouseleave = () => { button.style.opacity = '0.5'; };
                     button.onclick = () => {
                         if ( currentSession === null ) {
-                            const sessionInit = { optionalFeatures: [ 'local-floor', 'bounded-floor', 'hand-tracking', 'layers' ] };
+                            const sessionInit = { optionalFeatures: [ 'local-floor', 'bounded-floor', 'hand-tracking' ] };
                             navigator.xr.requestSession( 'immersive-vr', sessionInit ).then( onSessionStarted );
                         } else {
                             currentSession.end();
                         }
                     };
-                }
-                function showWebXRNotFound() {
-                    button.style.display = '';
-                    button.style.cursor = 'auto';
-                    button.textContent = 'VR NOT SUPPORTED';
-                    button.onmouseenter = null;
-                    button.onmouseleave = null;
-                    button.onclick = null;
                 }
                 function stylizeElement( element ) {
                     element.style.position = 'absolute';
@@ -196,19 +178,13 @@
                 if ( 'xr' in navigator ) {
                     stylizeElement( button );
                     navigator.xr.isSessionSupported( 'immersive-vr' ).then( ( supported ) => {
-                        supported ? showEnterVR() : showWebXRNotFound();
+                        if(supported) showEnterVR();
+                        else button.textContent = 'VR NOT SUPPORTED';
                     } );
                     return button;
                 } else {
-                    const message = document.createElement( 'a' );
-                    if ( window.isSecureContext === false ) {
-                        message.innerHTML = 'WEBXR NEEDS HTTPS';
-                    } else {
-                        message.innerHTML = 'WEBXR NOT AVAILABLE';
-                    }
-                    message.style.left = 'calc(50% - 90px)';
-                    message.style.width = '180px';
-                    message.style.textDecoration = 'none';
+                    const message = document.createElement( 'div' );
+                    message.innerHTML = 'HTTPS REQUIRED FOR VR';
                     stylizeElement( message );
                     return message;
                 }
@@ -225,9 +201,9 @@
             { source: "遵义会议", target: "1935年", relation: "发生年份" }
         ];
 
-        let scene, camera, renderer, controls, dragControls, raycaster;
+        let scene, camera, renderer, controls, raycaster;
         let mouse = new THREE.Vector2();
-        let graphGroup;
+        let graphGroup, worldGroup;
         let interactableObjects = []; 
         let edgeObjects = [];
         let isMovingCamera = false;
@@ -240,29 +216,35 @@
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0xf0f0f2);
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 5000);
-            camera.position.set(0, 30, 60); 
             
-            renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+            // 为了防止 VR 中用户“出生”在球体正中央导致黑屏，
+            // 我们创建一个父容器，将其相对于用户（0,0,0）位置进行偏移。
+            worldGroup = new THREE.Group();
+            scene.add(worldGroup);
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 5000);
+            camera.position.set(0, 10, 50); 
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
-            
-            // 启用 XR
             renderer.xr.enabled = true;
-            document.getElementById('viewport-container').appendChild(renderer.domElement);
+            // 关键：Quest 最好设置为 local 参考空间
+            renderer.xr.setReferenceSpaceType('local');
             
-            // 添加 VR 按钮 (使用内置 Logic)
+            document.getElementById('viewport-container').appendChild(renderer.domElement);
             document.body.appendChild(VRButton.createButton(renderer));
             
             raycaster = new THREE.Raycaster();
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
-            // 初始化 VR 控制器交互
             initVRControllers();
 
             graphGroup = new THREE.Group();
-            scene.add(graphGroup);
+            worldGroup.add(graphGroup);
+            // 将图谱中心稍微远离初始视角
+            graphGroup.position.z = -10; 
 
             updateGraphFromData();
             initUI();
@@ -272,7 +254,11 @@
             sun.position.set(50, 100, 50);
             scene.add(sun);
 
-            // WebXR 必须使用 setAnimationLoop
+            // 增加简单的空间参考网格（仅 VR 模式下有助于定位）
+            const gridHelper = new THREE.GridHelper(100, 50, 0xcccccc, 0xdddddd);
+            gridHelper.position.y = -10;
+            scene.add(gridHelper);
+
             renderer.setAnimationLoop(animate);
         }
 
@@ -297,8 +283,9 @@
             controller2.addEventListener('selectstart', onSelectStart);
             scene.add(controller2);
 
-            const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)]);
-            const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+            // 线形射线指示器
+            const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -10)]);
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
             const line = new THREE.Line(geometry, material);
             controller1.add(line.clone());
             controller2.add(line.clone());
@@ -314,7 +301,7 @@
             
             btn.disabled = true; loading.style.display = 'block';
             
-            const systemPrompt = `你是一个知识图谱专家。提取文本中的三元组格式：'主节点,客节点,关系'。只要纯CSV文本。`;
+            const systemPrompt = `你是一个知识图谱专家。提取三元组：'主节点,客节点,关系'。只要纯文本CSV。`;
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             
             try {
@@ -329,37 +316,27 @@
                 const result = await response.json();
                 resultArea.value = result.candidates[0].content.parts[0].text.trim();
                 container.style.display = 'block';
-            } catch (e) { alert("AI 解析失败"); }
+            } catch (e) { alert("AI 提取暂时繁忙。"); }
             finally { btn.disabled = false; loading.style.display = 'none'; }
         }
 
         function importAIToTable() {
             const text = document.getElementById('ai-output-area').value;
-            parseCSVAndAppend(text);
-            document.getElementById('ai-result-container').style.display = 'none';
-        }
-
-        function handleCSVBatchImport() {
-            const text = document.getElementById('csv-import-area').value;
-            parseCSVAndAppend(text);
-            document.getElementById('csv-import-area').value = "";
-        }
-
-        function parseCSVAndAppend(text) {
             const lines = text.split('\n');
             lines.forEach(line => {
                 const p = line.split(',');
                 if (p.length >= 3) currentData.push({ source: p[0].trim(), target: p[1].trim(), relation: p[2].trim() });
             });
             renderDataTable();
+            document.getElementById('ai-result-container').style.display = 'none';
         }
 
         function getNodeCategory(name) {
             if (/\d+年/.test(name)) return "year";
-            if (/会议|大会|战役|革命|代表大会/.test(name)) return "meeting";
-            if (/市$|省$|地$|县$|区$|长沙|安庆|唐山|潜江/.test(name)) return "location";
-            if (/同盟会|共产党|社$|小组|委员会/.test(name)) return "org";
-            if (["毛泽东", "周恩来", "邓小平", "朱德"].includes(name) || name.length <= 3) return "person";
+            if (/会议|大会|战役|革命/.test(name)) return "meeting";
+            if (/市$|省$|地$|县$|区$|长沙/.test(name)) return "location";
+            if (/同盟会|共产党|社$|小组/.test(name)) return "org";
+            if (name.length <= 3) return "person";
             return "other";
         }
 
@@ -372,7 +349,7 @@
             const nodeLookup = {};
             const nodesArray = Array.from(nodesSet);
             const n = nodesArray.length;
-            const radius = Math.max(22, Math.sqrt(n) * 5); 
+            const radius = Math.max(20, Math.sqrt(n) * 4); 
             
             nodesArray.forEach((name, i) => {
                 const phi = Math.acos(-1 + (2 * i) / n);
@@ -384,13 +361,11 @@
             currentData.forEach(rel => {
                 if (nodeLookup[rel.source] && nodeLookup[rel.target]) createEdge3D(nodeLookup[rel.source], nodeLookup[rel.target], rel.relation, n > 300);
             });
-            if(dragControls) dragControls.dispose();
-            initDragControls();
         }
 
         function createNode3D(name, position, isSmallMode) {
             const category = getNodeCategory(name);
-            const radius = category === "person" ? 1.0 : 0.75;
+            const radius = category === "person" ? 1.0 : 0.7;
             const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 12), new THREE.MeshPhongMaterial({ color: COLORS[category] }));
             sphere.position.copy(position);
             sphere.userData = { name, isNode: true, category };
@@ -398,11 +373,11 @@
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 256; canvas.height = 64;
-            ctx.font = 'Bold 32px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#111'; ctx.fillText(name, 128, 32);
+            ctx.font = 'Bold 30px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#111'; ctx.fillText(name, 128, 32);
             
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
-            sprite.position.set(0, radius + 1.2, 0);
-            sprite.scale.set(isSmallMode ? 3 : 5, isSmallMode ? 0.8 : 1.2, 1);
+            sprite.position.set(0, radius + 1.1, 0);
+            sprite.scale.set(isSmallMode ? 2.5 : 4, isSmallMode ? 0.6 : 1, 1);
             sphere.add(sprite);
             graphGroup.add(sphere);
             interactableObjects.push(sphere);
@@ -428,17 +403,10 @@
                 renderDataTable();
             };
             
-            const searchInput = document.getElementById('search-input');
-            searchInput.oninput = (e) => {
-                const val = e.target.value.trim();
-                const results = document.getElementById('search-results');
-                if(!val) { results.style.display = 'none'; return; }
-                const matches = interactableObjects.filter(obj => obj.userData.name.includes(val)).slice(0, 10);
-                results.innerHTML = matches.map(m => `<div class="result-item" style="color:#${COLORS[m.userData.category].toString(16)}" onclick="focusOnNode('${m.userData.name}')">${m.userData.name}</div>`).join('');
-                results.style.display = 'block';
-            };
-
             renderer.domElement.addEventListener('mousedown', (e) => {
+                // 如果当前正在 XR 会话中，不响应普通的鼠标点击
+                if (renderer.xr.isPresenting) return;
+                
                 mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
                 mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
@@ -448,28 +416,17 @@
             });
         }
 
-        function focusOnNode(name) {
-            const node = interactableObjects.find(o => o.userData.name === name);
-            if(!node) return;
-            targetLookAt.copy(node.position);
-            targetCameraPos.copy(node.position).add(new THREE.Vector3(0, 8, 20));
-            isMovingCamera = true;
-            showDetail(name);
-            document.getElementById('search-results').style.display = 'none';
-        }
-
         function showDetail(name) {
             const node = interactableObjects.find(o => o.userData.name === name);
             document.getElementById('panel-title').innerText = name;
-            const catNames = { person: "人物", org: "组织", meeting: "会议", year: "年份", location: "地点", other: "其他" };
-            const color = '#' + COLORS[node.userData.category].toString(16).padStart(6, '0');
-            document.getElementById('node-intro').innerHTML = `类别：<span style="color:${color}; font-weight:bold;">${catNames[node.userData.category]}</span><br>该实体的关联已载入图谱。`;
+            document.getElementById('node-intro').innerHTML = `实体关联已加载。VR模式下请注意手柄光束指示。`;
             const rels = currentData.filter(d => d.source === name || d.target === name);
             document.getElementById('panel-relations').innerHTML = rels.map(r => `<div class="relation-chip"><span style="color:var(--primary-color); font-weight:bold;">${r.relation}</span><span>${r.source === name ? '→ ' + r.target : '← ' + r.source}</span></div>`).join('');
             document.getElementById('detail-panel').style.display = 'block';
         }
 
         function hideDetail() { document.getElementById('detail-panel').style.display = 'none'; }
+        
         function renderDataTable() {
             const tbody = document.getElementById('data-table-body');
             tbody.innerHTML = currentData.map((row, i) => `<tr>
@@ -479,26 +436,25 @@
                 <td class="row-delete" onclick="currentData.splice(${i},1);renderDataTable()">×</td>
             </tr>`).join('');
         }
+
         function applyDataChanges() { updateGraphFromData(); document.getElementById('btn-show-3d').click(); }
-        function initDragControls() {
-            dragControls = new THREE.DragControls(interactableObjects, camera, renderer.domElement);
-            dragControls.addEventListener('dragstart', () => controls.enabled = false);
-            dragControls.addEventListener('dragend', () => controls.enabled = true);
-        }
+
         function animate() {
-            if (isMovingCamera) {
+            if (isMovingCamera && !renderer.xr.isPresenting) {
                 camera.position.lerp(targetCameraPos, 0.1);
                 controls.target.lerp(targetLookAt, 0.1);
                 if (camera.position.distanceTo(targetCameraPos) < 0.1) isMovingCamera = false;
             }
-            controls.update();
+            
+            // 仅在非 XR 模式下更新控制器
+            if (!renderer.xr.isPresenting) controls.update();
+            
             edgeObjects.forEach(edge => {
                 const s = new THREE.Vector3(), e = new THREE.Vector3();
                 edge.startNode.getWorldPosition(s); edge.endNode.getWorldPosition(e);
                 const pos = edge.line.geometry.attributes.position.array;
                 pos[0]=s.x; pos[1]=s.y; pos[2]=s.z; pos[3]=e.x; pos[4]=e.y; pos[5]=e.z;
                 edge.line.geometry.attributes.position.needsUpdate = true;
-                edge.line.geometry.computeBoundingSphere();
             });
             renderer.render(scene, camera);
         }
