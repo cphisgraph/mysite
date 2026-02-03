@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 知识图谱 VR 展示 - v1.5 导航与视觉修复版</title>
+    <title>3D 知识图谱 VR 展示 - v2.1 (逻辑修正版)</title>
     <style>
         :root {
             --primary-color: #b38600;
@@ -32,13 +32,20 @@
         }
 
         .section-box { background: #fafafa; border: 1px solid #eee; border-radius: 16px; padding: 25px; margin-bottom: 30px; }
-        textarea { width: 100%; height: 100px; margin-top: 10px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; box-sizing: border-box; }
+        textarea { width: 100%; height: 120px; margin-top: 10px; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-family: inherit; font-size: 14px; box-sizing: border-box; resize: vertical; }
+        
+        #ai-output-area { background: #f0f4f8; border-color: #c0d6eb; color: #2c3e50; font-family: monospace; }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f8f8; position: sticky; top: 0; z-index: 10; }
 
-        .btn-action { background: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .btn-action { background: var(--primary-color); color: white; border: none; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s; }
+        .btn-action.ai { background: var(--ai-color); }
+        .btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
         
+        #loading-overlay { display: none; margin-left: 10px; color: var(--ai-color); font-weight: bold; font-size: 12px; }
+
         #controls-hint { 
             position: absolute; bottom: 80px; width: 100%; text-align: center; 
             color: #fff; font-size: 14px; z-index: 10; pointer-events: none; 
@@ -50,32 +57,131 @@
 <body>
     <div id="nav-bar">
         <button class="nav-btn active" id="btn-show-3d">3D 图谱视图</button>
-        <button class="nav-btn" id="btn-show-data">数据管理</button>
+        <button class="nav-btn" id="btn-show-data">数据管理中心</button>
     </div>
 
     <div id="viewport-container"></div>
 
     <div id="data-table-container">
+        <!-- 逻辑修正：CSV 格式更新为 主, 关系, 客 -->
         <div class="section-box">
-            <h2>✨ 知识录入控制台</h2>
-            <textarea id="ai-input-text" placeholder="主节点,客节点,关系..."></textarea>
-            <div style="margin-top: 10px;">
-                <button class="btn-action" onclick="applyBatchImport()">快速解析导入</button>
-                <button class="btn-action" style="background:#eee; color:#666; margin-left:10px;" onclick="applyDataChanges()">💾 刷新 3D 图谱</button>
+            <h2 style="margin-top:0;">✨ AI 提取与手动同步 (v2.1)</h2>
+            <textarea id="ai-input-text" placeholder="在此粘贴自然语言描述或 '主节点,关系名称,客节点' 格式的 CSV 数据..."></textarea>
+            <div style="margin-top: 15px; display: flex; align-items: center; gap: 10px;">
+                <button class="btn-action ai" id="btn-ai-extract" onclick="handleAIExtraction()">✨ AI 智能解析</button>
+                <button class="btn-action" onclick="handleCSVBatchImport()">解析 CSV 并应用</button>
+                <button class="btn-action" style="background:#eee; color:#666;" onclick="applyDataChanges()">💾 刷新图谱数据</button>
+                <div id="loading-overlay">正在深度解析中...</div>
+            </div>
+            
+            <div id="ai-result-container" style="display:none; margin-top:20px;">
+                <p style="font-size:12px; font-weight:bold; color:var(--ai-color);">AI 解析结果预览 (主节点, 关系名称, 客节点)：</p>
+                <textarea id="ai-output-area"></textarea>
+                <button class="btn-action ai" style="margin-top:10px;" onclick="importAIToTable()">确认导入</button>
             </div>
         </div>
-        <table id="data-table">
-            <thead><tr><th>主节点</th><th>客节点</th><th>关系</th><th>操作</th></tr></thead>
-            <tbody id="data-table-body"></tbody>
-        </table>
+
+        <!-- 逻辑修正：表格列顺序更新 -->
+        <div class="section-box" style="border: none; padding: 0;">
+            <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin:0;">数据源管理表</h2>
+                <div>
+                    <button class="btn-action secondary" style="background:#eee; color:#666; margin-right:5px;" onclick="addNewDataRow()">+ 手动添加</button>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>主节点 (S)</th><th>关系名称 (P)</th><th>客节点 (O)</th><th style="width: 50px;">操作</th></tr>
+                </thead>
+                <tbody id="data-table-body"></tbody>
+            </table>
+        </div>
     </div>
 
-    <div id="controls-hint">左摇杆：看向哪里往哪里飞 | 右摇杆：转向与垂直升降 | 浅色浮窗已正对视角</div>
+    <div id="controls-hint">v2.1 逻辑修正版 | 标准三元组结构：主 -> 关系 -> 客 | 扳机键交互</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
+        const apiKey = ""; 
+
+        // --- 错误处理与指数退避 ---
+        async function fetchWithRetry(url, options, retries = 5) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) throw new Error("Rate limit exceeded");
+                    if (!response.ok) throw new Error("API request failed");
+                    return await response.json();
+                } catch (e) {
+                    if (i === retries - 1) throw e;
+                    const delay = Math.pow(2, i) * 1000;
+                    await new Promise(res => setTimeout(res, delay));
+                }
+            }
+        }
+
+        // --- AI 逻辑模块 ---
+        async function callGemini(prompt, systemInstruction = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const body = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+            const result = await fetchWithRetry(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            return result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        }
+
+        async function callGeminiTTS(text) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+            const body = {
+                contents: [{ parts: [{ text: `用庄重、深情的男中音朗读：${text}` }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Fenrir" } } }
+                }
+            };
+            const result = await fetchWithRetry(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            return result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        }
+
+        function playAudioBase64(base64Data) {
+            const binaryString = window.atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+            
+            const sampleRate = 24000; 
+            const wavHeader = new ArrayBuffer(44);
+            const view = new DataView(wavHeader);
+            view.setUint32(0, 0x52494646, false); 
+            view.setUint32(4, 36 + bytes.length, true);
+            view.setUint32(8, 0x57415645, false); 
+            view.setUint32(12, 0x666d7420, false); 
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); 
+            view.setUint16(22, 1, true); 
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            view.setUint32(36, 0x64617461, false); 
+            view.setUint32(40, bytes.length, true);
+
+            const blob = new Blob([wavHeader, bytes], { type: 'audio/wav' });
+            const audio = new Audio(URL.createObjectURL(blob));
+            audio.play();
+        }
+
+        // --- VR 基础模块 ---
         const VRButton = {
             createButton: function ( renderer ) {
                 const button = document.createElement( 'button' );
@@ -120,12 +226,12 @@
                     stylizeElement( button );
                     navigator.xr.isSessionSupported( 'immersive-vr' ).then( ( supported ) => {
                         if(supported) showEnterVR();
-                        else button.textContent = '您的设备不支持 VR';
+                        else button.textContent = '设备不支持 VR';
                     } );
                     return button;
                 } else {
                     const msg = document.createElement('div');
-                    msg.innerHTML = "需 HTTPS 访问以开启 VR";
+                    msg.innerHTML = "需 HTTPS 访问";
                     stylizeElement(msg);
                     return msg;
                 }
@@ -140,22 +246,31 @@
             location: 0x9b5de5, 
             other: 0x8d99ae 
         };
+
+        function getNodeCategory(name) {
+            if (/\d+年/.test(name)) return "year";
+            if (/会议|大会|战役|革命|代表大会/.test(name)) return "meeting";
+            if (/市$|省$|地$|县$|区$|长沙|淮安|安庆|唐山|潜江/.test(name)) return "location";
+            if (/同盟会|共产党|社$|小组|委员会/.test(name)) return "org";
+            if (["毛泽东", "周恩来", "邓小平", "朱德"].includes(name) || name.length <= 3) return "person";
+            return "other";
+        }
         
+        // 修正初始数据结构
         let currentData = [
-            { source: "毛泽东", target: "1893年", relation: "出生年份" },
-            { source: "毛泽东", target: "长沙市", relation: "出生地" },
-            { source: "遵义会议", target: "1935年", relation: "发生年份" },
-            { source: "邓小平", target: "1904年", relation: "出生年份" },
-            { source: "周恩来", target: "1898年", relation: "出生年份" }
+            { source: "毛泽东", relation: "出生年份", target: "1893年" },
+            { source: "毛泽东", relation: "出生地", target: "长沙市" },
+            { source: "遵义会议", relation: "发生年份", target: "1935年" }
         ];
 
         let scene, camera, renderer, controls, raycaster;
         let graphGroup, worldRig;
         let interactableObjects = []; 
         let edgeObjects = [];
-        let infoPanel, infoPanelCloseBtn; 
-        
-        // VR 导航参数
+        let infoPanel, infoPanelCloseBtn, infoPanelAIButton, infoPanelTTSButton; 
+        let currentActiveNode = null;
+        let aiSummaryText = "";
+
         const moveSpeed = 0.25;
         const rotateSpeed = 0.04;
         const liftSpeed = 0.18;
@@ -164,7 +279,6 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000000);
 
-            // 玩家底座
             worldRig = new THREE.Group();
             scene.add(worldRig);
 
@@ -200,15 +314,150 @@
 
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
-            for(let i=0; i<8000; i++) {
-                starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
-            }
+            for(let i=0; i<8000; i++) starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
             scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.8})));
 
             renderer.setAnimationLoop(renderLoop);
         }
 
+        function create3DInfoPanel() {
+            const panelGeo = new THREE.PlaneGeometry(8, 7);
+            const panelMat = new THREE.MeshBasicMaterial({ color: 0xf0f8ff, transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+            infoPanel = new THREE.Mesh(panelGeo, panelMat);
+            infoPanel.visible = false;
+            
+            const borderGeo = new THREE.EdgesGeometry(panelGeo);
+            const borderMat = new THREE.LineBasicMaterial({ color: 0xb38600, linewidth: 3 });
+            infoPanel.add(new THREE.LineSegments(borderGeo, borderMat));
+
+            const closeGeo = new THREE.PlaneGeometry(0.8, 0.8);
+            const closeCanvas = document.createElement('canvas'); closeCanvas.width = 128; closeCanvas.height = 128;
+            const cctx = closeCanvas.getContext('2d');
+            cctx.fillStyle = '#ff4444'; cctx.fillRect(0,0,128,128);
+            cctx.strokeStyle = '#fff'; cctx.lineWidth = 12;
+            cctx.beginPath(); cctx.moveTo(30,30); cctx.lineTo(98,98); cctx.stroke();
+            cctx.beginPath(); cctx.moveTo(98,30); cctx.lineTo(30,98); cctx.stroke();
+            infoPanelCloseBtn = new THREE.Mesh(closeGeo, new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(closeCanvas), side: THREE.DoubleSide }));
+            infoPanelCloseBtn.position.set(3.6, 3.1, 0.05); 
+            infoPanel.add(infoPanelCloseBtn);
+
+            const ttsGeo = new THREE.PlaneGeometry(3, 0.8);
+            const ttsCanvas = document.createElement('canvas'); ttsCanvas.width = 300; ttsCanvas.height = 80;
+            const tctx = ttsCanvas.getContext('2d');
+            tctx.fillStyle = '#1a73e8'; tctx.fillRect(0,0,300,80);
+            tctx.fillStyle = '#fff'; tctx.font = "Bold 30px Arial"; tctx.textAlign = "center";
+            tctx.fillText("✨ AI 语音播报", 150, 50);
+            infoPanelTTSButton = new THREE.Mesh(ttsGeo, new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(ttsCanvas), side: THREE.DoubleSide }));
+            infoPanelTTSButton.position.set(-2, -3, 0.05);
+            infoPanel.add(infoPanelTTSButton);
+
+            const aiGeo = new THREE.PlaneGeometry(3, 0.8);
+            const aiCanvas = document.createElement('canvas'); aiCanvas.width = 300; aiCanvas.height = 80;
+            const actx = aiCanvas.getContext('2d');
+            actx.fillStyle = '#b38600'; actx.fillRect(0,0,300,80);
+            actx.fillStyle = '#fff'; actx.font = "Bold 30px Arial"; actx.textAlign = "center";
+            actx.fillText("✨ AI 关联推导", 150, 50);
+            infoPanelAIButton = new THREE.Mesh(aiGeo, new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(aiCanvas), side: THREE.DoubleSide }));
+            infoPanelAIButton.position.set(2, -3, 0.05);
+            infoPanel.add(infoPanelAIButton);
+
+            scene.add(infoPanel);
+        }
+
+        async function showDetail3D(name) {
+            currentActiveNode = name;
+            aiSummaryText = "✨ AI 正在查阅历史文献中...";
+            renderPanelCanvas(name, aiSummaryText);
+
+            infoPanel.visible = true;
+            const camPos = new THREE.Vector3(); camera.getWorldPosition(camPos);
+            const lookDir = new THREE.Vector3(); camera.getWorldDirection(lookDir);
+            infoPanel.position.copy(camPos).add(lookDir.multiplyScalar(10));
+            infoPanel.lookAt(camPos);
+
+            try {
+                const sysPrompt = "你是一位博学的中国近现代史教授。请用100字以内简洁描述该实体的历史功绩或背景。";
+                aiSummaryText = await callGemini(`请介绍：${name}`, sysPrompt);
+                renderPanelCanvas(name, aiSummaryText);
+            } catch (e) {
+                aiSummaryText = "抱歉，AI 查阅文献时迷路了。";
+                renderPanelCanvas(name, aiSummaryText);
+            }
+        }
+
+        function renderPanelCanvas(name, summary) {
+            const nodeData = currentData.filter(d => d.source === name || d.target === name);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 1024; canvas.height = 896;
+            ctx.fillStyle = "#f0f8ff"; ctx.fillRect(0, 0, 1024, 896);
+            ctx.fillStyle = "#b38600"; ctx.font = "Bold 90px Microsoft YaHei"; ctx.fillText(name, 50, 130);
+            ctx.fillStyle = "#1a73e8"; ctx.font = "Bold 40px Microsoft YaHei"; ctx.fillText("✨ AI 历史综述:", 50, 210);
+            
+            ctx.fillStyle = "#202124"; ctx.font = "34px Microsoft YaHei";
+            const words = summary.split('');
+            let line = '', y = 260;
+            for(let n = 0; n < words.length; n++) {
+                let testLine = line + words[n];
+                if (ctx.measureText(testLine).width > 924) { ctx.fillText(line, 50, y); line = words[n]; y += 45; }
+                else line = testLine;
+            }
+            ctx.fillText(line, 50, y);
+
+            ctx.fillStyle = "#1a73e8"; ctx.font = "Bold 40px Microsoft YaHei"; ctx.fillText("知识关联路径:", 50, y + 80);
+            ctx.fillStyle = "#202124"; ctx.font = "32px Microsoft YaHei";
+            nodeData.slice(0, 5).forEach((rel, i) => {
+                // 逻辑修正：根据身份显示 关系 -> 目标
+                const text = rel.source === name ? `${rel.relation} → ${rel.target}` : `${rel.relation} ← ${rel.source}`;
+                ctx.fillText(`• ${text}`, 70, y + 135 + i * 45);
+            });
+
+            infoPanel.material.map = new THREE.CanvasTexture(canvas);
+            infoPanel.material.needsUpdate = true;
+        }
+
+        async function handleAIExtraction() {
+            const input = document.getElementById('ai-input-text').value.trim();
+            if (!input) return;
+            const btn = document.getElementById('btn-ai-extract');
+            const overlay = document.getElementById('loading-overlay');
+            btn.disabled = true; overlay.style.display = 'block';
+            
+            try {
+                const prompt = `提取三元组：${input}`;
+                // 逻辑修正：AI 提示词对调
+                const sys = "从文本中提取知识三元组，格式：'主节点,关系名称,客节点'。纯CSV格式输出，禁止任何多余文本。";
+                const text = await callGemini(prompt, sys);
+                document.getElementById('ai-output-area').value = text.trim();
+                document.getElementById('ai-result-container').style.display = 'block';
+            } catch (e) { alert("AI 提取异常"); }
+            finally { btn.disabled = false; overlay.style.display = 'none'; }
+        }
+
+        async function handleDeepAnalysis() {
+            if (!currentActiveNode) return;
+            const rels = currentData.filter(d => d.source === currentActiveNode || d.target === currentActiveNode);
+            const context = rels.map(r => `${r.source}-${r.relation}-${r.target}`).join('; ');
+            aiSummaryText = "✨ AI 正在进行深度关联分析...";
+            renderPanelCanvas(currentActiveNode, aiSummaryText);
+            
+            try {
+                const prompt = `已知关联数据：${context}。请分析 ${currentActiveNode} 在其中的核心价值和历史逻辑。`;
+                aiSummaryText = await callGemini(prompt, "分析历史逻辑，深刻且专业，150字以内。");
+                renderPanelCanvas(currentActiveNode, aiSummaryText);
+            } catch (e) { aiSummaryText = "分析中断。"; renderPanelCanvas(currentActiveNode, aiSummaryText); }
+        }
+
+        async function handleTTS() {
+            if (!aiSummaryText || aiSummaryText.startsWith("✨")) return;
+            try {
+                const data = await callGeminiTTS(aiSummaryText);
+                if (data) playAudioBase64(data);
+            } catch (e) { console.error("TTS 播放失败"); }
+        }
+
+        // --- VR 循环逻辑 ---
         function initVRControllers() {
             function onSelectStart() {
                 const tempMatrix = new THREE.Matrix4();
@@ -216,303 +465,189 @@
                 raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                const closeIntersects = raycaster.intersectObject(infoPanelCloseBtn);
-                if (closeIntersects.length > 0) {
-                    infoPanel.visible = false;
-                    return;
+                if (infoPanel.visible) {
+                    if (raycaster.intersectObject(infoPanelCloseBtn).length > 0) { infoPanel.visible = false; return; }
+                    if (raycaster.intersectObject(infoPanelTTSButton).length > 0) { handleTTS(); return; }
+                    if (raycaster.intersectObject(infoPanelAIButton).length > 0) { handleDeepAnalysis(); return; }
                 }
 
-                const intersects = raycaster.intersectObjects(interactableObjects);
-                if (intersects.length > 0) {
-                    showDetail3D(intersects[0].object.userData.name);
-                }
+                const nodeHits = raycaster.intersectObjects(interactableObjects);
+                if (nodeHits.length > 0) showDetail3D(nodeHits[0].object.userData.name);
             }
-
-            const c1 = renderer.xr.getController(0);
-            c1.addEventListener('selectstart', onSelectStart);
-            worldRig.add(c1);
-
-            const c2 = renderer.xr.getController(1);
-            c2.addEventListener('selectstart', onSelectStart);
-            worldRig.add(c2);
-
+            const c1 = renderer.xr.getController(0); c1.addEventListener('selectstart', onSelectStart); worldRig.add(c1);
+            const c2 = renderer.xr.getController(1); c2.addEventListener('selectstart', onSelectStart); worldRig.add(c2);
+            
             const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-10)]);
-            const laserMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 });
-            const laser = new THREE.Line(laserGeo, laserMat);
-            c1.add(laser.clone());
-            c2.add(laser.clone());
+            const laser = new THREE.Line(laserGeo, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 }));
+            c1.add(laser.clone()); c2.add(laser.clone());
         }
 
+        function renderLoop() {
+            const session = renderer.xr.getSession();
+            if (session) {
+                for (const source of session.inputSources) {
+                    if (source.gamepad && source.gamepad.axes) {
+                        const axes = source.gamepad.axes;
+                        if (source.handedness === 'left') {
+                            const moveDir = new THREE.Vector3(); camera.getWorldDirection(moveDir);
+                            const sideDir = new THREE.Vector3().crossVectors(camera.up, moveDir).normalize();
+                            worldRig.position.addScaledVector(moveDir, -axes[3] * moveSpeed);
+                            worldRig.position.addScaledVector(sideDir, -axes[2] * moveSpeed);
+                        }
+                        if (source.handedness === 'right') {
+                            worldRig.rotation.y -= axes[2] * rotateSpeed;
+                            worldRig.position.y -= axes[3] * liftSpeed;
+                        }
+                    }
+                }
+            } else { controls.update(); }
+
+            edgeObjects.forEach(edge => {
+                const pos = edge.line.geometry.attributes.position.array;
+                pos[0] = edge.startNode.position.x; pos[1] = edge.startNode.position.y; pos[2] = edge.startNode.position.z;
+                pos[3] = edge.endNode.position.x; pos[4] = edge.endNode.position.y; pos[5] = edge.endNode.position.z;
+                edge.line.geometry.attributes.position.needsUpdate = true;
+                edge.line.geometry.computeBoundingSphere();
+                
+                if (edge.label) {
+                    edge.label.position.lerpVectors(edge.startNode.position, edge.endNode.position, 0.5);
+                }
+            });
+            renderer.render(scene, camera);
+        }
+
+        // --- 数据与 UI 基础逻辑 ---
         function updateGraphFromData() {
             while(graphGroup.children.length > 0) graphGroup.remove(graphGroup.children[0]);
-            interactableObjects = [];
-            edgeObjects = [];
-            
+            interactableObjects = []; edgeObjects = [];
             const nodesSet = new Set();
             currentData.forEach(d => { nodesSet.add(d.source); nodesSet.add(d.target); });
             const nodesArray = Array.from(nodesSet);
             const n = nodesArray.length;
             const radius = Math.max(20, Math.sqrt(n) * 6); 
-            
             const nodeLookup = {};
             nodesArray.forEach((name, i) => {
                 const phi = Math.acos(-1 + (2 * i) / n);
                 const theta = Math.sqrt(n * Math.PI) * phi;
-                const pos = new THREE.Vector3(
-                    radius * Math.cos(theta) * Math.sin(phi),
-                    radius * Math.sin(theta) * Math.sin(phi),
-                    radius * Math.cos(phi)
-                );
+                const pos = new THREE.Vector3(radius * Math.cos(theta) * Math.sin(phi), radius * Math.sin(theta) * Math.sin(phi), radius * Math.cos(phi));
                 nodeLookup[name] = createNode3D(name, pos);
             });
-
             currentData.forEach(rel => {
                 if (nodeLookup[rel.source] && nodeLookup[rel.target]) {
-                    createEdge3D(nodeLookup[rel.source], nodeLookup[rel.target]);
+                    createEdge3D(nodeLookup[rel.source], nodeLookup[rel.target], rel.relation);
                 }
             });
         }
 
         function createNode3D(name, pos) {
-            const category = /\d+年/.test(name) ? "year" : (/会议|大会|战役/.test(name) ? "meeting" : (name.length <= 3 ? "person" : "other"));
+            const category = getNodeCategory(name);
+            const color = COLORS[category];
+            const isPerson = category === "person";
+            
             const sphere = new THREE.Mesh(
-                new THREE.SphereGeometry(category === "person" ? 1.2 : 0.8, 24, 24),
-                new THREE.MeshPhongMaterial({ 
-                    color: COLORS[category], 
-                    emissive: COLORS[category], 
-                    emissiveIntensity: 0.4,
-                    shininess: 100 
-                })
+                new THREE.SphereGeometry(isPerson ? 1.2 : 0.8, 24, 24), 
+                new THREE.MeshPhongMaterial({ color: color, emissive: color, emissiveIntensity: 0.4 })
             );
             sphere.position.copy(pos);
             sphere.userData = { name, category };
-
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = 512; canvas.height = 128;
-            ctx.font = 'Bold 65px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = "rgba(0,0,0,1)"; ctx.shadowBlur = 10;
+            
+            const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d'); ctx.font = 'Bold 65px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; 
+            ctx.shadowColor = "rgba(0,0,0,1)"; ctx.shadowBlur = 8;
             ctx.fillText(name, 256, 80);
             
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
-            sprite.position.set(0, 2.5, 0);
-            sprite.scale.set(10, 2.5, 1);
+            sprite.position.set(0, 2.5, 0); sprite.scale.set(10, 2.5, 1);
             sphere.add(sprite);
-
             graphGroup.add(sphere);
             interactableObjects.push(sphere);
             return sphere;
         }
 
-        function createEdge3D(startNode, endNode) {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(6); 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-            const line = new THREE.Line(geometry, material);
+        function createEdge3D(startNode, endNode, relationName) {
+            const geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+            const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }));
             graphGroup.add(line);
-            edgeObjects.push({ line, startNode, endNode });
-        }
-
-        function create3DInfoPanel() {
-            // 主面板 - 改为浅色系
-            const panelGeo = new THREE.PlaneGeometry(8, 6);
-            const panelMat = new THREE.MeshBasicMaterial({ 
-                color: 0xf0f8ff, // 爱丽丝蓝 (浅色)
-                transparent: true, 
-                opacity: 0.95, 
-                side: THREE.DoubleSide 
-            });
-            infoPanel = new THREE.Mesh(panelGeo, panelMat);
-            infoPanel.visible = false;
             
-            const borderGeo = new THREE.EdgesGeometry(panelGeo);
-            const borderMat = new THREE.LineBasicMaterial({ color: 0xb38600, linewidth: 3 });
-            const border = new THREE.LineSegments(borderGeo, borderMat);
-            infoPanel.add(border);
-
-            // 关闭按钮
-            const closeGeo = new THREE.PlaneGeometry(0.8, 0.8);
-            const closeCanvas = document.createElement('canvas');
-            closeCanvas.width = 128; closeCanvas.height = 128;
-            const cctx = closeCanvas.getContext('2d');
-            cctx.fillStyle = '#ff4444'; cctx.fillRect(0,0,128,128);
-            cctx.strokeStyle = '#fff'; cctx.lineWidth = 12;
-            cctx.beginPath(); cctx.moveTo(30,30); cctx.lineTo(98,98); cctx.stroke();
-            cctx.beginPath(); cctx.moveTo(98,30); cctx.lineTo(30,98); cctx.stroke();
-            
-            const closeMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(closeCanvas), side: THREE.DoubleSide });
-            infoPanelCloseBtn = new THREE.Mesh(closeGeo, closeMat);
-            infoPanelCloseBtn.position.set(3.6, 2.6, 0.05); // 稍微移出表面防止闪烁
-            infoPanel.add(infoPanelCloseBtn);
-
-            scene.add(infoPanel);
-        }
-
-        function showDetail3D(name) {
-            const nodeData = currentData.filter(d => d.source === name || d.target === name);
-            const category = interactableObjects.find(o => o.userData.name === name).userData.category;
-            const catMap = { person: "人物", org: "组织", meeting: "事件", year: "年份", location: "地点", other: "其他" };
-
-            const canvas = document.createElement('canvas');
+            const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
             const ctx = canvas.getContext('2d');
-            canvas.width = 1024; canvas.height = 768;
+            ctx.font = '32px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#00ffff';
+            ctx.shadowColor = "rgba(0,0,0,1)"; ctx.shadowBlur = 5;
+            ctx.fillText(relationName || "", 128, 40);
             
-            // 浅色背景绘制
-            ctx.fillStyle = "#f0f8ff";
-            ctx.fillRect(0, 0, 1024, 768);
+            const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, opacity: 0.8, depthTest: false }));
+            labelSprite.scale.set(4, 1, 1);
+            graphGroup.add(labelSprite);
             
-            // 标题：深金色/棕色 (在浅色背景下清晰)
-            ctx.fillStyle = "#b38600";
-            ctx.font = "Bold 90px Microsoft YaHei";
-            ctx.fillText(name, 50, 130);
-            
-            // 分类：海军蓝
-            ctx.fillStyle = "#001a33";
-            ctx.font = "45px Microsoft YaHei";
-            ctx.fillText(`分类: ${catMap[category]}`, 50, 220);
-            
-            // 关联标题：蓝色
-            ctx.fillStyle = "#1a73e8";
-            ctx.font = "Bold 50px Microsoft YaHei";
-            ctx.fillText("知识关联网络:", 50, 320);
-            
-            // 内容：深灰色
-            ctx.fillStyle = "#202124";
-            ctx.font = "42px Microsoft YaHei";
-            nodeData.slice(0, 8).forEach((rel, i) => {
-                const isSrc = rel.source === name;
-                const text = `${rel.relation} → ${isSrc ? rel.target : rel.source}`;
-                ctx.fillText(`• ${text}`, 70, 400 + i * 55);
-            });
-
-            const texture = new THREE.CanvasTexture(canvas);
-            infoPanel.material.map = texture;
-            infoPanel.material.needsUpdate = true;
-
-            // 获取相机当前在世界坐标系下的位置和朝向
-            const cameraWorldPos = new THREE.Vector3();
-            camera.getWorldPosition(cameraWorldPos);
-            
-            const lookDir = new THREE.Vector3();
-            camera.getWorldDirection(lookDir);
-            
-            // 将面板放在相机前方 10 个单位处
-            infoPanel.position.copy(cameraWorldPos).add(lookDir.multiplyScalar(10));
-            
-            // 面板正面必须朝向用户。infoPanel 默认 Z 正向为正面。
-            // lookAt 会让物体的 Z 轴指向目标，所以我们直接指向相机位置
-            infoPanel.lookAt(cameraWorldPos);
-            
-            infoPanel.visible = true;
-        }
-
-        let lastHovered = null;
-
-        function renderLoop() {
-            const session = renderer.xr.getSession();
-            
-            if (session) {
-                for (const source of session.inputSources) {
-                    if (source.gamepad && source.gamepad.axes) {
-                        const axes = source.gamepad.axes;
-                        
-                        // 左摇杆：视线追踪飞行 (看向哪，飞向哪)
-                        if (source.handedness === 'left') {
-                            const moveDir = new THREE.Vector3();
-                            camera.getWorldDirection(moveDir); // 获取真实视线方向 (包含上下)
-
-                            const sideDir = new THREE.Vector3();
-                            sideDir.crossVectors(camera.up, moveDir).normalize(); // 获取侧向方向
-
-                            // 这里的 axes[3] 是纵向 (前负后正), axes[2] 是横向
-                            worldRig.position.addScaledVector(moveDir, -axes[3] * moveSpeed);
-                            worldRig.position.addScaledVector(sideDir, -axes[2] * moveSpeed);
-                        }
-                        
-                        // 右摇杆：转向与高度微调
-                        if (source.handedness === 'right') {
-                            worldRig.rotation.y -= axes[2] * rotateSpeed;
-                            worldRig.position.y -= axes[3] * liftSpeed;
-                        }
-
-                        // 悬停检测
-                        const tempMatrix = new THREE.Matrix4();
-                        tempMatrix.identity().extractRotation(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
-                        const rayOrigin = new THREE.Vector3().setFromMatrixPosition(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
-                        const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
-                        
-                        raycaster.ray.set(rayOrigin, rayDir);
-                        const intersects = raycaster.intersectObjects(interactableObjects);
-                        
-                        if (intersects.length > 0) {
-                            const obj = intersects[0].object;
-                            if (lastHovered && lastHovered !== obj) lastHovered.scale.set(1, 1, 1);
-                            obj.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.1);
-                            lastHovered = obj;
-                        } else if (lastHovered) {
-                            lastHovered.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
-                            if (lastHovered.scale.x < 1.01) lastHovered = null;
-                        }
-                    }
-                }
-            } else {
-                controls.update();
-            }
-
-            edgeObjects.forEach(edge => {
-                const posAttr = edge.line.geometry.attributes.position;
-                posAttr.array[0] = edge.startNode.position.x;
-                posAttr.array[1] = edge.startNode.position.y;
-                posAttr.array[2] = edge.startNode.position.z;
-                posAttr.array[3] = edge.endNode.position.x;
-                posAttr.array[4] = edge.endNode.position.y;
-                posAttr.array[5] = edge.endNode.position.z;
-                posAttr.needsUpdate = true;
-                edge.line.geometry.computeBoundingSphere();
-            });
-
-            renderer.render(scene, camera);
+            edgeObjects.push({ line, startNode, endNode, label: labelSprite });
         }
 
         function initUI() {
-            document.getElementById('btn-show-3d').onclick = () => {
-                document.getElementById('viewport-container').style.display = 'block';
-                document.getElementById('data-table-container').style.display = 'none';
+            const btn3D = document.getElementById('btn-show-3d');
+            const btnData = document.getElementById('btn-show-data');
+
+            btn3D.onclick = () => { 
+                document.getElementById('viewport-container').style.display = 'block'; 
+                document.getElementById('data-table-container').style.display = 'none'; 
+                btn3D.classList.add('active');
+                btnData.classList.remove('active');
             };
-            document.getElementById('btn-show-data').onclick = () => {
-                document.getElementById('viewport-container').style.display = 'none';
-                document.getElementById('data-table-container').style.display = 'block';
-                renderDataTable();
+            btnData.onclick = () => { 
+                document.getElementById('viewport-container').style.display = 'none'; 
+                document.getElementById('data-table-container').style.display = 'block'; 
+                btnData.classList.add('active');
+                btn3D.classList.remove('active');
+                renderDataTable(); 
             };
         }
 
-        function applyBatchImport() {
-            const text = document.getElementById('ai-input-text').value.trim();
-            if(!text) return;
-            text.split('\n').forEach(line => {
-                const p = line.split(',');
-                if (p.length >= 3) currentData.push({ source: p[0].trim(), target: p[1].trim(), relation: p[2].trim() });
-            });
-            renderDataTable();
+        function addNewDataRow() { 
+            // 逻辑修正：初始行数据结构对调
+            currentData.push({ source: "新节点", relation: "关系名称", target: "客节点" }); 
+            renderDataTable(); 
         }
 
         function renderDataTable() {
             const tbody = document.getElementById('data-table-body');
             tbody.innerHTML = currentData.map((row, i) => `<tr>
-                <td>${row.source}</td><td>${row.target}</td><td>${row.relation}</td>
+                <td><input type="text" value="${row.source}" onchange="currentData[${i}].source=this.value"></td>
+                <td><input type="text" value="${row.relation}" onchange="currentData[${i}].relation=this.value"></td>
+                <td><input type="text" value="${row.target}" onchange="currentData[${i}].target=this.value"></td>
                 <td style="color:red; cursor:pointer;" onclick="currentData.splice(${i},1);renderDataTable()">删除</td>
             </tr>`).join('');
         }
 
-        function applyDataChanges() { updateGraphFromData(); alert("图谱已实时更新！"); }
+        function handleCSVBatchImport() {
+            const text = document.getElementById('ai-input-text').value.trim();
+            if(!text) return;
+            parseCSVAndAppend(text);
+            document.getElementById('ai-input-text').value = "";
+        }
+
+        function parseCSVAndAppend(text) {
+            const lines = text.split('\n');
+            lines.forEach(line => {
+                const p = line.split(',');
+                // 逻辑修正：按照 主, 关系, 客 顺序解析
+                if (p.length >= 3) {
+                    currentData.push({ 
+                        source: p[0].trim(), 
+                        relation: p[1].trim(), 
+                        target: p[2].trim() 
+                    });
+                }
+            });
+            renderDataTable();
+        }
+
+        function importAIToTable() {
+            parseCSVAndAppend(document.getElementById('ai-output-area').value);
+            document.getElementById('ai-result-container').style.display = 'none';
+        }
+
+        function applyDataChanges() { updateGraphFromData(); alert("图谱已同步！"); }
 
         window.onload = init;
-        window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
     </script>
 </body>
 </html>
