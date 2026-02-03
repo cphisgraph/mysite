@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 知识图谱 VR 展示 - v1.3 科幻交互版</title>
+    <title>3D 知识图谱 VR 展示 - v1.4 交互增强版</title>
     <style>
         :root {
             --primary-color: #b38600;
@@ -25,7 +25,6 @@
 
         #viewport-container { width: 100%; height: 100vh; }
 
-        /* 仅用于非 VR 模式的数据管理 */
         #data-table-container {
             position: absolute; top: 0; left: 0; width: 100%; height: 100vh;
             background: white; z-index: 400; display: none; overflow-y: auto;
@@ -71,13 +70,12 @@
         </table>
     </div>
 
-    <div id="controls-hint">左摇杆：全向飞行移动 | 右摇杆：旋转视角/垂直升降 | 扳机键：点击节点查看 3D 浮窗</div>
+    <div id="controls-hint">手柄移动同步已修复 | 扳机键：点击节点或[X]关闭面板 | 射线指向节点会变大</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        // --- VR 按钮逻辑 ---
         const VRButton = {
             createButton: function ( renderer ) {
                 const button = document.createElement( 'button' );
@@ -152,10 +150,10 @@
         ];
 
         let scene, camera, renderer, controls, raycaster;
-        let graphGroup, worldRig, uiGroup;
+        let graphGroup, worldRig;
         let interactableObjects = []; 
         let edgeObjects = [];
-        let infoPanel; // 3D 浮窗面板
+        let infoPanel, infoPanelCloseBtn; 
         
         // VR 导航参数
         const moveSpeed = 0.2;
@@ -166,7 +164,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000000);
 
-            // 玩家底座
+            // 玩家底座：所有相对于玩家的东西（相机、手柄）都放这里
             worldRig = new THREE.Group();
             scene.add(worldRig);
 
@@ -187,25 +185,20 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
-            // 图谱容器
             graphGroup = new THREE.Group();
             scene.add(graphGroup);
-
-            // UI 容器（始终相对于玩家显示）
-            uiGroup = new THREE.Group();
-            scene.add(uiGroup);
 
             initVRControllers();
             updateGraphFromData();
             initUI();
-            create3DInfoPanel(); // 初始化 3D 浮窗
+            create3DInfoPanel(); 
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.7));
             const pointLight = new THREE.PointLight(0xffffff, 1.2);
             pointLight.position.set(20, 100, 50);
             scene.add(pointLight);
 
-            // 星空背景
+            // 星空
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
             for(let i=0; i<8000; i++) {
@@ -224,19 +217,28 @@
                 raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
+                // 检测面板关闭按钮
+                const closeIntersects = raycaster.intersectObject(infoPanelCloseBtn);
+                if (closeIntersects.length > 0) {
+                    infoPanel.visible = false;
+                    return;
+                }
+
+                // 检测节点
                 const intersects = raycaster.intersectObjects(interactableObjects);
                 if (intersects.length > 0) {
                     showDetail3D(intersects[0].object.userData.name);
                 }
             }
 
+            // 重要：将手柄添加到 worldRig，确保随人走
             const c1 = renderer.xr.getController(0);
             c1.addEventListener('selectstart', onSelectStart);
-            scene.add(c1);
+            worldRig.add(c1);
 
             const c2 = renderer.xr.getController(1);
             c2.addEventListener('selectstart', onSelectStart);
-            scene.add(c2);
+            worldRig.add(c2);
 
             const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-10)]);
             const laserMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 });
@@ -245,7 +247,6 @@
             c2.add(laser.clone());
         }
 
-        // --- 核心更新逻辑：白色粗关系线 ---
         function updateGraphFromData() {
             while(graphGroup.children.length > 0) graphGroup.remove(graphGroup.children[0]);
             interactableObjects = [];
@@ -288,9 +289,8 @@
                 })
             );
             sphere.position.copy(pos);
-            sphere.userData = { name, category };
+            sphere.userData = { name, category, originalScale: category === "person" ? 1.0 : 1.0 };
 
-            // 显著加大的文本标签
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 512; canvas.height = 128;
@@ -312,37 +312,43 @@
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(6); 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            // 白色高亮关系线
-            const material = new THREE.LineBasicMaterial({ 
-                color: 0xffffff, 
-                transparent: true, 
-                opacity: 0.8,
-                linewidth: 2 // 注意：现代浏览器底层常忽略 linewidth，故配合白色增强显示
-            });
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
             const line = new THREE.Line(geometry, material);
-            
             graphGroup.add(line);
             edgeObjects.push({ line, startNode, endNode });
         }
 
-        // --- 3D 浮窗创建逻辑 ---
         function create3DInfoPanel() {
+            // 主面板
             const panelGeo = new THREE.PlaneGeometry(8, 6);
             const panelMat = new THREE.MeshBasicMaterial({ 
                 color: 0x001a33, 
                 transparent: true, 
-                opacity: 0.85, 
+                opacity: 0.9, 
                 side: THREE.DoubleSide 
             });
             infoPanel = new THREE.Mesh(panelGeo, panelMat);
             infoPanel.visible = false;
             
-            // 装饰边框
             const borderGeo = new THREE.EdgesGeometry(panelGeo);
-            const borderMat = new THREE.LineBasicMaterial({ color: 0xb38600, linewidth: 2 });
+            const borderMat = new THREE.LineBasicMaterial({ color: 0x00ddee, linewidth: 2 });
             const border = new THREE.LineSegments(borderGeo, borderMat);
             infoPanel.add(border);
+
+            // 关闭按钮
+            const closeGeo = new THREE.PlaneGeometry(0.8, 0.8);
+            const closeCanvas = document.createElement('canvas');
+            closeCanvas.width = 64; closeCanvas.height = 64;
+            const cctx = closeCanvas.getContext('2d');
+            cctx.fillStyle = '#ff4444'; cctx.fillRect(0,0,64,64);
+            cctx.strokeStyle = '#fff'; cctx.lineWidth = 8;
+            cctx.beginPath(); cctx.moveTo(15,15); cctx.lineTo(49,49); cctx.stroke();
+            cctx.beginPath(); cctx.moveTo(49,15); cctx.lineTo(15,49); cctx.stroke();
+            
+            const closeMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(closeCanvas), side: THREE.DoubleSide });
+            infoPanelCloseBtn = new THREE.Mesh(closeGeo, closeMat);
+            infoPanelCloseBtn.position.set(3.6, 2.6, 0.01);
+            infoPanel.add(infoPanelCloseBtn);
 
             scene.add(infoPanel);
         }
@@ -356,71 +362,85 @@
             const ctx = canvas.getContext('2d');
             canvas.width = 1024; canvas.height = 768;
             
-            // 绘制科幻背景风格
-            ctx.fillStyle = "rgba(0, 30, 60, 0.9)";
+            // 增强对比度的背景
+            ctx.fillStyle = "rgba(0, 20, 40, 0.95)";
             ctx.fillRect(0, 0, 1024, 768);
             
-            // 绘制标题
-            ctx.fillStyle = "#ffcc00";
-            ctx.font = "Bold 80px Microsoft YaHei";
-            ctx.fillText(name, 50, 120);
+            // 标题：亮金色
+            ctx.fillStyle = "#ffd700";
+            ctx.font = "Bold 90px Microsoft YaHei";
+            ctx.fillText(name, 50, 130);
             
-            // 绘制分类
+            // 分类：纯白色
             ctx.fillStyle = "#ffffff";
-            ctx.font = "40px Microsoft YaHei";
-            ctx.fillText(`分类: ${catMap[category]}`, 50, 200);
+            ctx.font = "45px Microsoft YaHei";
+            ctx.fillText(`分类: ${catMap[category]}`, 50, 220);
             
-            // 绘制关联
-            ctx.fillStyle = "#00ddee";
-            ctx.font = "Bold 45px Microsoft YaHei";
-            ctx.fillText("知识图谱关联路径:", 50, 300);
+            // 关联标题：亮青色
+            ctx.fillStyle = "#00ffff";
+            ctx.font = "Bold 50px Microsoft YaHei";
+            ctx.fillText("知识关联网络:", 50, 320);
             
+            // 内容：高亮白色
             ctx.fillStyle = "#ffffff";
-            ctx.font = "38px Microsoft YaHei";
+            ctx.font = "42px Microsoft YaHei";
             nodeData.slice(0, 8).forEach((rel, i) => {
-                const text = `${rel.relation} -> ${rel.source === name ? rel.target : rel.source}`;
-                ctx.fillText(`· ${text}`, 70, 370 + i * 50);
+                const isSrc = rel.source === name;
+                const text = `${rel.relation} → ${isSrc ? rel.target : rel.source}`;
+                ctx.fillText(`• ${text}`, 70, 400 + i * 55);
             });
 
             const texture = new THREE.CanvasTexture(canvas);
             infoPanel.material.map = texture;
             infoPanel.material.needsUpdate = true;
 
-            // 将面板放置在玩家正前方 15 个单位处
-            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            infoPanel.position.copy(camera.getWorldPosition(new THREE.Vector3())).add(dir.multiplyScalar(15));
+            const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            infoPanel.position.copy(camera.getWorldPosition(new THREE.Vector3())).add(lookDir.multiplyScalar(12));
             infoPanel.lookAt(camera.position);
             infoPanel.visible = true;
-
-            // 5秒后自动关闭，或者点击其他处关闭
-            setTimeout(() => { if(infoPanel.visible) infoPanel.visible = false; }, 15000);
         }
 
-        // --- 渲染循环与高度导航逻辑 ---
+        let lastHovered = null;
+
         function renderLoop() {
             const session = renderer.xr.getSession();
             
             if (session) {
+                // VR 导航
                 for (const source of session.inputSources) {
                     if (source.gamepad && source.gamepad.axes) {
                         const axes = source.gamepad.axes;
-                        
-                        // 左摇杆：全向飞行 (看向哪里就往哪里飞，包含上下)
                         if (source.handedness === 'left') {
                             const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
                             const sideDir = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                            
-                            // 前后左右移动
                             worldRig.position.addScaledVector(lookDir, -axes[3] * moveSpeed);
                             worldRig.position.addScaledVector(sideDir, axes[2] * moveSpeed);
                         }
-                        
-                        // 右摇杆：视角旋转 + 强制垂直升降
                         if (source.handedness === 'right') {
-                            // 左右控制水平旋转
                             worldRig.rotation.y -= axes[2] * rotateSpeed;
-                            // 上下控制强制高度升降 (Y轴)
                             worldRig.position.y -= axes[3] * liftSpeed;
+                        }
+
+                        // 悬停检测逻辑（实时变大效果）
+                        const tempMatrix = new THREE.Matrix4();
+                        tempMatrix.identity().extractRotation(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
+                        const rayOrigin = new THREE.Vector3().setFromMatrixPosition(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
+                        const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
+                        
+                        raycaster.ray.set(rayOrigin, rayDir);
+                        const intersects = raycaster.intersectObjects(interactableObjects);
+                        
+                        if (intersects.length > 0) {
+                            const obj = intersects[0].object;
+                            if (lastHovered && lastHovered !== obj) {
+                                lastHovered.scale.set(1, 1, 1);
+                            }
+                            // 悬停变大动画
+                            obj.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.1);
+                            lastHovered = obj;
+                        } else if (lastHovered) {
+                            lastHovered.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+                            if (lastHovered.scale.x < 1.01) lastHovered = null;
                         }
                     }
                 }
@@ -428,7 +448,6 @@
                 controls.update();
             }
 
-            // 实时更新连线
             edgeObjects.forEach(edge => {
                 const posAttr = edge.line.geometry.attributes.position;
                 posAttr.array[0] = edge.startNode.position.x;
@@ -444,7 +463,6 @@
             renderer.render(scene, camera);
         }
 
-        // --- UI 及 工具函数 ---
         function initUI() {
             document.getElementById('btn-show-3d').onclick = () => {
                 document.getElementById('viewport-container').style.display = 'block';
@@ -475,7 +493,7 @@
             </tr>`).join('');
         }
 
-        function applyDataChanges() { updateGraphFromData(); alert("3D 视图已实时同步！"); }
+        function applyDataChanges() { updateGraphFromData(); alert("图谱已实时更新！"); }
 
         window.onload = init;
         window.onresize = () => {
