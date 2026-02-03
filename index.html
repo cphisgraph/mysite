@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 知识图谱 VR 展示 - v1.4 交互增强版</title>
+    <title>3D 知识图谱 VR 展示 - v1.5 导航与视觉修复版</title>
     <style>
         :root {
             --primary-color: #b38600;
@@ -70,7 +70,7 @@
         </table>
     </div>
 
-    <div id="controls-hint">手柄移动同步已修复 | 扳机键：点击节点或[X]关闭面板 | 射线指向节点会变大</div>
+    <div id="controls-hint">左摇杆：看向哪里往哪里飞 | 右摇杆：转向与垂直升降 | 浅色浮窗已正对视角</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -156,15 +156,15 @@
         let infoPanel, infoPanelCloseBtn; 
         
         // VR 导航参数
-        const moveSpeed = 0.2;
+        const moveSpeed = 0.25;
         const rotateSpeed = 0.04;
-        const liftSpeed = 0.15;
+        const liftSpeed = 0.18;
 
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000000);
 
-            // 玩家底座：所有相对于玩家的东西（相机、手柄）都放这里
+            // 玩家底座
             worldRig = new THREE.Group();
             scene.add(worldRig);
 
@@ -198,7 +198,6 @@
             pointLight.position.set(20, 100, 50);
             scene.add(pointLight);
 
-            // 星空
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
             for(let i=0; i<8000; i++) {
@@ -217,21 +216,18 @@
                 raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
                 raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                // 检测面板关闭按钮
                 const closeIntersects = raycaster.intersectObject(infoPanelCloseBtn);
                 if (closeIntersects.length > 0) {
                     infoPanel.visible = false;
                     return;
                 }
 
-                // 检测节点
                 const intersects = raycaster.intersectObjects(interactableObjects);
                 if (intersects.length > 0) {
                     showDetail3D(intersects[0].object.userData.name);
                 }
             }
 
-            // 重要：将手柄添加到 worldRig，确保随人走
             const c1 = renderer.xr.getController(0);
             c1.addEventListener('selectstart', onSelectStart);
             worldRig.add(c1);
@@ -289,7 +285,7 @@
                 })
             );
             sphere.position.copy(pos);
-            sphere.userData = { name, category, originalScale: category === "person" ? 1.0 : 1.0 };
+            sphere.userData = { name, category };
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -319,35 +315,35 @@
         }
 
         function create3DInfoPanel() {
-            // 主面板
+            // 主面板 - 改为浅色系
             const panelGeo = new THREE.PlaneGeometry(8, 6);
             const panelMat = new THREE.MeshBasicMaterial({ 
-                color: 0x001a33, 
+                color: 0xf0f8ff, // 爱丽丝蓝 (浅色)
                 transparent: true, 
-                opacity: 0.9, 
+                opacity: 0.95, 
                 side: THREE.DoubleSide 
             });
             infoPanel = new THREE.Mesh(panelGeo, panelMat);
             infoPanel.visible = false;
             
             const borderGeo = new THREE.EdgesGeometry(panelGeo);
-            const borderMat = new THREE.LineBasicMaterial({ color: 0x00ddee, linewidth: 2 });
+            const borderMat = new THREE.LineBasicMaterial({ color: 0xb38600, linewidth: 3 });
             const border = new THREE.LineSegments(borderGeo, borderMat);
             infoPanel.add(border);
 
             // 关闭按钮
             const closeGeo = new THREE.PlaneGeometry(0.8, 0.8);
             const closeCanvas = document.createElement('canvas');
-            closeCanvas.width = 64; closeCanvas.height = 64;
+            closeCanvas.width = 128; closeCanvas.height = 128;
             const cctx = closeCanvas.getContext('2d');
-            cctx.fillStyle = '#ff4444'; cctx.fillRect(0,0,64,64);
-            cctx.strokeStyle = '#fff'; cctx.lineWidth = 8;
-            cctx.beginPath(); cctx.moveTo(15,15); cctx.lineTo(49,49); cctx.stroke();
-            cctx.beginPath(); cctx.moveTo(49,15); cctx.lineTo(15,49); cctx.stroke();
+            cctx.fillStyle = '#ff4444'; cctx.fillRect(0,0,128,128);
+            cctx.strokeStyle = '#fff'; cctx.lineWidth = 12;
+            cctx.beginPath(); cctx.moveTo(30,30); cctx.lineTo(98,98); cctx.stroke();
+            cctx.beginPath(); cctx.moveTo(98,30); cctx.lineTo(30,98); cctx.stroke();
             
             const closeMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(closeCanvas), side: THREE.DoubleSide });
             infoPanelCloseBtn = new THREE.Mesh(closeGeo, closeMat);
-            infoPanelCloseBtn.position.set(3.6, 2.6, 0.01);
+            infoPanelCloseBtn.position.set(3.6, 2.6, 0.05); // 稍微移出表面防止闪烁
             infoPanel.add(infoPanelCloseBtn);
 
             scene.add(infoPanel);
@@ -362,27 +358,27 @@
             const ctx = canvas.getContext('2d');
             canvas.width = 1024; canvas.height = 768;
             
-            // 增强对比度的背景
-            ctx.fillStyle = "rgba(0, 20, 40, 0.95)";
+            // 浅色背景绘制
+            ctx.fillStyle = "#f0f8ff";
             ctx.fillRect(0, 0, 1024, 768);
             
-            // 标题：亮金色
-            ctx.fillStyle = "#ffd700";
+            // 标题：深金色/棕色 (在浅色背景下清晰)
+            ctx.fillStyle = "#b38600";
             ctx.font = "Bold 90px Microsoft YaHei";
             ctx.fillText(name, 50, 130);
             
-            // 分类：纯白色
-            ctx.fillStyle = "#ffffff";
+            // 分类：海军蓝
+            ctx.fillStyle = "#001a33";
             ctx.font = "45px Microsoft YaHei";
             ctx.fillText(`分类: ${catMap[category]}`, 50, 220);
             
-            // 关联标题：亮青色
-            ctx.fillStyle = "#00ffff";
+            // 关联标题：蓝色
+            ctx.fillStyle = "#1a73e8";
             ctx.font = "Bold 50px Microsoft YaHei";
             ctx.fillText("知识关联网络:", 50, 320);
             
-            // 内容：高亮白色
-            ctx.fillStyle = "#ffffff";
+            // 内容：深灰色
+            ctx.fillStyle = "#202124";
             ctx.font = "42px Microsoft YaHei";
             nodeData.slice(0, 8).forEach((rel, i) => {
                 const isSrc = rel.source === name;
@@ -394,9 +390,20 @@
             infoPanel.material.map = texture;
             infoPanel.material.needsUpdate = true;
 
-            const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            infoPanel.position.copy(camera.getWorldPosition(new THREE.Vector3())).add(lookDir.multiplyScalar(12));
-            infoPanel.lookAt(camera.position);
+            // 获取相机当前在世界坐标系下的位置和朝向
+            const cameraWorldPos = new THREE.Vector3();
+            camera.getWorldPosition(cameraWorldPos);
+            
+            const lookDir = new THREE.Vector3();
+            camera.getWorldDirection(lookDir);
+            
+            // 将面板放在相机前方 10 个单位处
+            infoPanel.position.copy(cameraWorldPos).add(lookDir.multiplyScalar(10));
+            
+            // 面板正面必须朝向用户。infoPanel 默认 Z 正向为正面。
+            // lookAt 会让物体的 Z 轴指向目标，所以我们直接指向相机位置
+            infoPanel.lookAt(cameraWorldPos);
+            
             infoPanel.visible = true;
         }
 
@@ -406,22 +413,30 @@
             const session = renderer.xr.getSession();
             
             if (session) {
-                // VR 导航
                 for (const source of session.inputSources) {
                     if (source.gamepad && source.gamepad.axes) {
                         const axes = source.gamepad.axes;
+                        
+                        // 左摇杆：视线追踪飞行 (看向哪，飞向哪)
                         if (source.handedness === 'left') {
-                            const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                            const sideDir = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                            worldRig.position.addScaledVector(lookDir, -axes[3] * moveSpeed);
-                            worldRig.position.addScaledVector(sideDir, axes[2] * moveSpeed);
+                            const moveDir = new THREE.Vector3();
+                            camera.getWorldDirection(moveDir); // 获取真实视线方向 (包含上下)
+
+                            const sideDir = new THREE.Vector3();
+                            sideDir.crossVectors(camera.up, moveDir).normalize(); // 获取侧向方向
+
+                            // 这里的 axes[3] 是纵向 (前负后正), axes[2] 是横向
+                            worldRig.position.addScaledVector(moveDir, -axes[3] * moveSpeed);
+                            worldRig.position.addScaledVector(sideDir, -axes[2] * moveSpeed);
                         }
+                        
+                        // 右摇杆：转向与高度微调
                         if (source.handedness === 'right') {
                             worldRig.rotation.y -= axes[2] * rotateSpeed;
                             worldRig.position.y -= axes[3] * liftSpeed;
                         }
 
-                        // 悬停检测逻辑（实时变大效果）
+                        // 悬停检测
                         const tempMatrix = new THREE.Matrix4();
                         tempMatrix.identity().extractRotation(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
                         const rayOrigin = new THREE.Vector3().setFromMatrixPosition(source.handedness === 'right' ? renderer.xr.getController(1).matrixWorld : renderer.xr.getController(0).matrixWorld);
@@ -432,10 +447,7 @@
                         
                         if (intersects.length > 0) {
                             const obj = intersects[0].object;
-                            if (lastHovered && lastHovered !== obj) {
-                                lastHovered.scale.set(1, 1, 1);
-                            }
-                            // 悬停变大动画
+                            if (lastHovered && lastHovered !== obj) lastHovered.scale.set(1, 1, 1);
                             obj.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.1);
                             lastHovered = obj;
                         } else if (lastHovered) {
