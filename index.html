@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 知识图谱 VR 展示 - v1.2 Quest 交互修复版</title>
+    <title>3D 知识图谱 VR 展示 - v1.3 科幻交互版</title>
     <style>
         :root {
             --primary-color: #b38600;
@@ -25,7 +25,7 @@
 
         #viewport-container { width: 100%; height: 100vh; }
 
-        /* 数据管理页面 */
+        /* 仅用于非 VR 模式的数据管理 */
         #data-table-container {
             position: absolute; top: 0; left: 0; width: 100%; height: 100vh;
             background: white; z-index: 400; display: none; overflow-y: auto;
@@ -38,22 +38,13 @@
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
 
-        #detail-panel {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 360px; padding: 0; background: var(--panel-bg); backdrop-filter: blur(25px);
-            border-radius: 28px; color: #1d1d1f; display: none; z-index: 1000; box-shadow: 0 40px 100px rgba(0, 0, 0, 0.25);
-        }
-        .detail-header { padding: 40px 20px 20px 20px; text-align: center; }
-        .node-avatar { width: 100px; height: 100px; border-radius: 50%; border: 3px solid white; margin-bottom: 10px; background: #eee; }
-        .detail-body { padding: 0 25px 40px 25px; }
-        .close-btn { position: absolute; top: 20px; right: 20px; width: 30px; height: 30px; cursor: pointer; font-size: 20px; text-align: center; line-height: 30px; background: rgba(0,0,0,0.05); border-radius: 50%; }
-
         .btn-action { background: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
         
         #controls-hint { 
             position: absolute; bottom: 80px; width: 100%; text-align: center; 
-            color: #fff; font-size: 12px; z-index: 10; pointer-events: none; 
-            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            color: #fff; font-size: 14px; z-index: 10; pointer-events: none; 
+            text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.3); padding: 10px 0;
         }
     </style>
 </head>
@@ -67,11 +58,11 @@
 
     <div id="data-table-container">
         <div class="section-box">
-            <h2>✨ AI 提取与手动同步</h2>
-            <textarea id="ai-input-text" placeholder="在此粘贴文本或 CSV 格式数据..."></textarea>
+            <h2>✨ 知识录入控制台</h2>
+            <textarea id="ai-input-text" placeholder="主节点,客节点,关系..."></textarea>
             <div style="margin-top: 10px;">
-                <button class="btn-action" onclick="applyBatchImport()">解析并应用数据</button>
-                <button class="btn-action" style="background:#eee; color:#666; margin-left:10px;" onclick="applyDataChanges()">💾 刷新图谱</button>
+                <button class="btn-action" onclick="applyBatchImport()">快速解析导入</button>
+                <button class="btn-action" style="background:#eee; color:#666; margin-left:10px;" onclick="applyDataChanges()">💾 刷新 3D 图谱</button>
             </div>
         </div>
         <table id="data-table">
@@ -80,25 +71,13 @@
         </table>
     </div>
 
-    <div id="detail-panel">
-        <div class="close-btn" onclick="hideDetail()">×</div>
-        <div class="detail-header">
-            <img id="node-avatar" class="node-avatar" src="">
-            <h2 id="panel-title" style="margin:0;">标题</h2>
-        </div>
-        <div class="detail-body">
-            <p id="node-intro">实体信息加载中...</p>
-            <div id="panel-relations"></div>
-        </div>
-    </div>
-
-    <div id="controls-hint">VR 手柄操作：左摇杆平移移动 | 右摇杆旋转视角 | 扳机键点击节点</div>
+    <div id="controls-hint">左摇杆：全向飞行移动 | 右摇杆：旋转视角/垂直升降 | 扳机键：点击节点查看 3D 浮窗</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
     <script>
-        // --- VR 按钮内置逻辑 ---
+        // --- VR 按钮逻辑 ---
         const VRButton = {
             createButton: function ( renderer ) {
                 const button = document.createElement( 'button' );
@@ -137,7 +116,6 @@
                     element.style.background = 'rgba(0,0,0,0.8)';
                     element.style.color = '#fff';
                     element.style.font = 'bold 14px sans-serif';
-                    element.style.textAlign = 'center';
                     element.style.zIndex = '9999';
                 }
                 if ( 'xr' in navigator ) {
@@ -156,34 +134,44 @@
             }
         };
 
-        const COLORS = { person: 0xe63946, org: 0xf39c12, meeting: 0x2a9d8f, year: 0x457b9d, location: 0x9b5de5, other: 0x8d99ae };
+        const COLORS = { 
+            person: 0xe63946, 
+            org: 0xf39c12, 
+            meeting: 0x2a9d8f, 
+            year: 0x457b9d, 
+            location: 0x9b5de5, 
+            other: 0x8d99ae 
+        };
         
         let currentData = [
             { source: "毛泽东", target: "1893年", relation: "出生年份" },
             { source: "毛泽东", target: "长沙市", relation: "出生地" },
-            { source: "遵义会议", target: "1935年", relation: "发生年份" }
+            { source: "遵义会议", target: "1935年", relation: "发生年份" },
+            { source: "邓小平", target: "1904年", relation: "出生年份" },
+            { source: "周恩来", target: "1898年", relation: "出生年份" }
         ];
 
         let scene, camera, renderer, controls, raycaster;
-        let graphGroup, worldRig;
+        let graphGroup, worldRig, uiGroup;
         let interactableObjects = []; 
         let edgeObjects = [];
+        let infoPanel; // 3D 浮窗面板
         
         // VR 导航参数
-        const moveSpeed = 0.15;
-        const rotateSpeed = 0.03;
+        const moveSpeed = 0.2;
+        const rotateSpeed = 0.04;
+        const liftSpeed = 0.15;
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050505);
+            scene.background = new THREE.Color(0x000000);
 
-            // worldRig 作为 VR 玩家的“底座”，移动它就相当于移动玩家
+            // 玩家底座
             worldRig = new THREE.Group();
             scene.add(worldRig);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-            // 初始视角设在球体外部
-            camera.position.set(0, 1.6, 40); 
+            camera.position.set(0, 1.6, 50); 
             worldRig.add(camera);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -199,34 +187,38 @@
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
 
-            // 初始化图谱容器
+            // 图谱容器
             graphGroup = new THREE.Group();
             scene.add(graphGroup);
+
+            // UI 容器（始终相对于玩家显示）
+            uiGroup = new THREE.Group();
+            scene.add(uiGroup);
 
             initVRControllers();
             updateGraphFromData();
             initUI();
+            create3DInfoPanel(); // 初始化 3D 浮窗
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const pointLight = new THREE.PointLight(0xffffff, 1);
-            pointLight.position.set(20, 50, 30);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+            const pointLight = new THREE.PointLight(0xffffff, 1.2);
+            pointLight.position.set(20, 100, 50);
             scene.add(pointLight);
 
-            // 增加星空背景
+            // 星空背景
             const starGeo = new THREE.BufferGeometry();
             const starPos = [];
-            for(let i=0; i<5000; i++) {
-                starPos.push((Math.random()-0.5)*1000, (Math.random()-0.5)*1000, (Math.random()-0.5)*1000);
+            for(let i=0; i<8000; i++) {
+                starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
             }
             starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-            scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0x888888, size: 0.5})));
+            scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.8})));
 
             renderer.setAnimationLoop(renderLoop);
         }
 
         function initVRControllers() {
             function onSelectStart() {
-                // 将射线投射到场景中
                 const tempMatrix = new THREE.Matrix4();
                 tempMatrix.identity().extractRotation(this.matrixWorld);
                 raycaster.ray.origin.setFromMatrixPosition(this.matrixWorld);
@@ -234,7 +226,7 @@
 
                 const intersects = raycaster.intersectObjects(interactableObjects);
                 if (intersects.length > 0) {
-                    showDetail(intersects[0].object.userData.name);
+                    showDetail3D(intersects[0].object.userData.name);
                 }
             }
 
@@ -246,14 +238,14 @@
             c2.addEventListener('selectstart', onSelectStart);
             scene.add(c2);
 
-            const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
-            const laserMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+            const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-10)]);
+            const laserMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 });
             const laser = new THREE.Line(laserGeo, laserMat);
             c1.add(laser.clone());
             c2.add(laser.clone());
         }
 
-        // --- 核心更新逻辑：确保连线精准连接 ---
+        // --- 核心更新逻辑：白色粗关系线 ---
         function updateGraphFromData() {
             while(graphGroup.children.length > 0) graphGroup.remove(graphGroup.children[0]);
             interactableObjects = [];
@@ -263,7 +255,7 @@
             currentData.forEach(d => { nodesSet.add(d.source); nodesSet.add(d.target); });
             const nodesArray = Array.from(nodesSet);
             const n = nodesArray.length;
-            const radius = Math.max(15, Math.sqrt(n) * 4); 
+            const radius = Math.max(20, Math.sqrt(n) * 6); 
             
             const nodeLookup = {};
             nodesArray.forEach((name, i) => {
@@ -279,7 +271,7 @@
 
             currentData.forEach(rel => {
                 if (nodeLookup[rel.source] && nodeLookup[rel.target]) {
-                    createEdge3D(nodeLookup[rel.source], nodeLookup[rel.target], rel.relation);
+                    createEdge3D(nodeLookup[rel.source], nodeLookup[rel.target]);
                 }
             });
         }
@@ -287,21 +279,28 @@
         function createNode3D(name, pos) {
             const category = /\d+年/.test(name) ? "year" : (/会议|大会|战役/.test(name) ? "meeting" : (name.length <= 3 ? "person" : "other"));
             const sphere = new THREE.Mesh(
-                new THREE.SphereGeometry(category === "person" ? 0.8 : 0.5, 16, 16),
-                new THREE.MeshPhongMaterial({ color: COLORS[category], emissive: COLORS[category], emissiveIntensity: 0.2 })
+                new THREE.SphereGeometry(category === "person" ? 1.2 : 0.8, 24, 24),
+                new THREE.MeshPhongMaterial({ 
+                    color: COLORS[category], 
+                    emissive: COLORS[category], 
+                    emissiveIntensity: 0.4,
+                    shininess: 100 
+                })
             );
             sphere.position.copy(pos);
             sphere.userData = { name, category };
 
-            // 文本标签
+            // 显著加大的文本标签
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = 256; canvas.height = 64;
-            ctx.font = 'Bold 30px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-            ctx.fillText(name, 128, 45);
+            canvas.width = 512; canvas.height = 128;
+            ctx.font = 'Bold 65px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = "rgba(0,0,0,1)"; ctx.shadowBlur = 10;
+            ctx.fillText(name, 256, 80);
+            
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
-            sprite.position.set(0, 1.2, 0);
-            sprite.scale.set(4, 1, 1);
+            sprite.position.set(0, 2.5, 0);
+            sprite.scale.set(10, 2.5, 1);
             sphere.add(sprite);
 
             graphGroup.add(sphere);
@@ -309,39 +308,119 @@
             return sphere;
         }
 
-        function createEdge3D(startNode, endNode, label) {
+        function createEdge3D(startNode, endNode) {
             const geometry = new THREE.BufferGeometry();
-            // 初始化两个点，稍后在 renderLoop 中实时更新
             const positions = new Float32Array(6); 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
-            const material = new THREE.LineBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.4 });
+            // 白色高亮关系线
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.8,
+                linewidth: 2 // 注意：现代浏览器底层常忽略 linewidth，故配合白色增强显示
+            });
             const line = new THREE.Line(geometry, material);
             
             graphGroup.add(line);
             edgeObjects.push({ line, startNode, endNode });
         }
 
-        // --- 渲染循环与 VR 交互逻辑 ---
+        // --- 3D 浮窗创建逻辑 ---
+        function create3DInfoPanel() {
+            const panelGeo = new THREE.PlaneGeometry(8, 6);
+            const panelMat = new THREE.MeshBasicMaterial({ 
+                color: 0x001a33, 
+                transparent: true, 
+                opacity: 0.85, 
+                side: THREE.DoubleSide 
+            });
+            infoPanel = new THREE.Mesh(panelGeo, panelMat);
+            infoPanel.visible = false;
+            
+            // 装饰边框
+            const borderGeo = new THREE.EdgesGeometry(panelGeo);
+            const borderMat = new THREE.LineBasicMaterial({ color: 0xb38600, linewidth: 2 });
+            const border = new THREE.LineSegments(borderGeo, borderMat);
+            infoPanel.add(border);
+
+            scene.add(infoPanel);
+        }
+
+        function showDetail3D(name) {
+            const nodeData = currentData.filter(d => d.source === name || d.target === name);
+            const category = interactableObjects.find(o => o.userData.name === name).userData.category;
+            const catMap = { person: "人物", org: "组织", meeting: "事件", year: "年份", location: "地点", other: "其他" };
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 1024; canvas.height = 768;
+            
+            // 绘制科幻背景风格
+            ctx.fillStyle = "rgba(0, 30, 60, 0.9)";
+            ctx.fillRect(0, 0, 1024, 768);
+            
+            // 绘制标题
+            ctx.fillStyle = "#ffcc00";
+            ctx.font = "Bold 80px Microsoft YaHei";
+            ctx.fillText(name, 50, 120);
+            
+            // 绘制分类
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "40px Microsoft YaHei";
+            ctx.fillText(`分类: ${catMap[category]}`, 50, 200);
+            
+            // 绘制关联
+            ctx.fillStyle = "#00ddee";
+            ctx.font = "Bold 45px Microsoft YaHei";
+            ctx.fillText("知识图谱关联路径:", 50, 300);
+            
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "38px Microsoft YaHei";
+            nodeData.slice(0, 8).forEach((rel, i) => {
+                const text = `${rel.relation} -> ${rel.source === name ? rel.target : rel.source}`;
+                ctx.fillText(`· ${text}`, 70, 370 + i * 50);
+            });
+
+            const texture = new THREE.CanvasTexture(canvas);
+            infoPanel.material.map = texture;
+            infoPanel.material.needsUpdate = true;
+
+            // 将面板放置在玩家正前方 15 个单位处
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            infoPanel.position.copy(camera.getWorldPosition(new THREE.Vector3())).add(dir.multiplyScalar(15));
+            infoPanel.lookAt(camera.position);
+            infoPanel.visible = true;
+
+            // 5秒后自动关闭，或者点击其他处关闭
+            setTimeout(() => { if(infoPanel.visible) infoPanel.visible = false; }, 15000);
+        }
+
+        // --- 渲染循环与高度导航逻辑 ---
         function renderLoop() {
             const session = renderer.xr.getSession();
             
-            // 处理 VR 摇杆移动
             if (session) {
                 for (const source of session.inputSources) {
                     if (source.gamepad && source.gamepad.axes) {
                         const axes = source.gamepad.axes;
-                        // 左手摇杆 (通常是 index 0/1) 控制移动
+                        
+                        // 左摇杆：全向飞行 (看向哪里就往哪里飞，包含上下)
                         if (source.handedness === 'left') {
-                            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-                            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-                            forward.y = 0; right.y = 0; // 锁定水平面移动
-                            worldRig.position.addScaledVector(forward, -axes[3] * moveSpeed);
-                            worldRig.position.addScaledVector(right, axes[2] * moveSpeed);
+                            const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                            const sideDir = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                            
+                            // 前后左右移动
+                            worldRig.position.addScaledVector(lookDir, -axes[3] * moveSpeed);
+                            worldRig.position.addScaledVector(sideDir, axes[2] * moveSpeed);
                         }
-                        // 右手摇杆 (通常是 index 2/3) 控制旋转
+                        
+                        // 右摇杆：视角旋转 + 强制垂直升降
                         if (source.handedness === 'right') {
+                            // 左右控制水平旋转
                             worldRig.rotation.y -= axes[2] * rotateSpeed;
+                            // 上下控制强制高度升降 (Y轴)
+                            worldRig.position.y -= axes[3] * liftSpeed;
                         }
                     }
                 }
@@ -349,10 +428,9 @@
                 controls.update();
             }
 
-            // 实时更新连线位置，确保它们始终锁定在节点中心
+            // 实时更新连线
             edgeObjects.forEach(edge => {
                 const posAttr = edge.line.geometry.attributes.position;
-                // 注意：这里使用本地坐标，因为连线和节点都在 graphGroup 下
                 posAttr.array[0] = edge.startNode.position.x;
                 posAttr.array[1] = edge.startNode.position.y;
                 posAttr.array[2] = edge.startNode.position.z;
@@ -360,58 +438,29 @@
                 posAttr.array[4] = edge.endNode.position.y;
                 posAttr.array[5] = edge.endNode.position.z;
                 posAttr.needsUpdate = true;
-                edge.line.geometry.computeBoundingSphere(); // 必须重新计算包围球防止视锥体剔除
+                edge.line.geometry.computeBoundingSphere();
             });
 
             renderer.render(scene, camera);
         }
 
-        // --- UI 及 数据处理 ---
+        // --- UI 及 工具函数 ---
         function initUI() {
             document.getElementById('btn-show-3d').onclick = () => {
                 document.getElementById('viewport-container').style.display = 'block';
                 document.getElementById('data-table-container').style.display = 'none';
-                document.getElementById('btn-show-3d').classList.add('active');
-                document.getElementById('btn-show-data').classList.remove('active');
             };
             document.getElementById('btn-show-data').onclick = () => {
                 document.getElementById('viewport-container').style.display = 'none';
                 document.getElementById('data-table-container').style.display = 'block';
-                document.getElementById('btn-show-data').classList.add('active');
-                document.getElementById('btn-show-3d').classList.remove('active');
                 renderDataTable();
             };
-
-            renderer.domElement.addEventListener('mousedown', (e) => {
-                if(renderer.xr.isPresenting) return;
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(interactableObjects);
-                if (intersects.length > 0) showDetail(intersects[0].object.userData.name);
-                else hideDetail();
-            });
         }
-
-        function showDetail(name) {
-            const node = interactableObjects.find(o => o.userData.name === name);
-            document.getElementById('panel-title').innerText = name;
-            document.getElementById('node-intro').innerText = `这是关于 ${name} 的百科关联信息。您可以通过 3D 射线探索其背后的知识网络。`;
-            const rels = currentData.filter(d => d.source === name || d.target === name);
-            document.getElementById('panel-relations').innerHTML = rels.map(r => 
-                `<div class="relation-chip"><b>${r.relation}</b><span>${r.source === name ? '→ ' + r.target : '← ' + r.source}</span></div>`
-            ).join('');
-            document.getElementById('detail-panel').style.display = 'block';
-        }
-
-        function hideDetail() { document.getElementById('detail-panel').style.display = 'none'; }
 
         function applyBatchImport() {
             const text = document.getElementById('ai-input-text').value.trim();
             if(!text) return;
-            const lines = text.split('\n');
-            lines.forEach(line => {
+            text.split('\n').forEach(line => {
                 const p = line.split(',');
                 if (p.length >= 3) currentData.push({ source: p[0].trim(), target: p[1].trim(), relation: p[2].trim() });
             });
@@ -426,7 +475,7 @@
             </tr>`).join('');
         }
 
-        function applyDataChanges() { updateGraphFromData(); alert("图谱已更新"); }
+        function applyDataChanges() { updateGraphFromData(); alert("3D 视图已实时同步！"); }
 
         window.onload = init;
         window.onresize = () => {
